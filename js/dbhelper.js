@@ -3,27 +3,11 @@
  */
 //import idb from 'idb';
 class DBHelper {
-  //adapted from Wittr and Jake Archibald IDB examples
-  static openDatabase() {
-  // console.log('in open database');
-    this.dbPromise = idb.open('mws', 2, upgradeDB => {
-      // Note: we don't use 'break' in this switch statement,
-      // the fall-through behaviour is what we want.
-      switch (upgradeDB.oldVersion) {
-        case 0:
-          upgradeDB.createObjectStore('objs', {keyPath: 'id'});
-        case 1:
-          var objStore = upgradeDB.transaction.objectStore('objs');
-          objStore.createIndex('updateDate', 'updatedAt');
-      }
-    });
-  
-  }
 
   //adapted from Wittr and Jake Archibald IDB examples
-  static openDatabasePromise() {
+  static openDatabase() {
     // console.log('in open database');
-      this.dbPromise = idb.open('mws', 2, upgradeDB => {
+      this.dbPromise = idb.open('mws', 5, upgradeDB => {
         // Note: we don't use 'break' in this switch statement,
         // the fall-through behaviour is what we want.
         switch (upgradeDB.oldVersion) {
@@ -32,15 +16,26 @@ class DBHelper {
           case 1:
             var objStore = upgradeDB.transaction.objectStore('objs');
             objStore.createIndex('updateDate', 'updatedAt');
-        }
+          case 2:
+            upgradeDB.createObjectStore('revs', {keyPath: 'id'});
+            const revStore = upgradeDB.transaction.objectStore('revs');
+            revStore.createIndex('restId','restaurant_id');
+            revStore.createIndex('updateDate','updatedAt');
+            // console.log('revs created');
+          case 3:
+            upgradeDB.createObjectStore('localrevs', {keyPath: 'id', autoIncrement: true});
+            // console.log('localrev created');
+          case 4:
+            upgradeDB.createObjectStore('favQueue',{keyPath: 'id', autoIncrement: true});
+          }
       });
       return this.dbPromise;
     }
   
   // Given json list of restaurants data store in indexedDB
   // read google promises primer then wrote this
-  static SaveRestaurantsPromise () {
-    return Promise.all([this.openDatabasePromise(),this.fetchRestaurantsPromise()]).then(values => {
+  static SaveRestaurants () {
+    return Promise.all([this.openDatabase(),this.fetchRestaurants()]).then(values => {
 // console.log('promises resolved');
       const db=values[0];
       const restaurants=values[1];
@@ -57,95 +52,137 @@ class DBHelper {
     });
   }
 
-
-
-    // Given json list of restaurants data store in indexedDB
-  static SaveRestaurants () {
-    DBHelper.fetchRestaurants((error, restaurants) => {
-      if (error) {
-        // console.log('Save Error',error);
-        // callback(error, null);
-      } else {
-        // Filter restaurants to have only given cuisine type
-        this.dbPromise.then(function(db) {
-          if (!db) return;
-      
-          var tx = db.transaction('objs', 'readwrite');
-          var store = tx.objectStore('objs');
-          restaurants.forEach(function(restaurant) {
-            store.put(restaurant);
-            // console.log('saved', restaurant);
-          });
-        });
-          }
+  // Given json list of restaurants data store in indexedDB
+  // read google promises primer then wrote this
+  static SaveReviews () {
+    return Promise.all([this.openDatabase(),this.fetchAllReviews()]).then(values => {
+// console.log('promises resolved');
+      const db=values[0];
+      const reviews=values[1];
+      if (!db) {return};
+      // console.log('starting transactions',restaurants);
+      var tx = db.transaction('revs', 'readwrite');
+      var store = tx.objectStore('revs');
+      reviews.forEach(function(review) {
+        store.put(review);
+        // console.log('saved', review);
+      });
+      // console.log('all reviews saved',reviews);
+      return reviews;
     });
-
   }
-
+  // Given json list of restaurants data store in indexedDB
+  // read google promises primer then wrote this
+  static SaveRestaurantReviews (restaurant_id) {
+    // console.log('in save rest reviews for id',restaurant_id);
+    return Promise.all([this.openDatabase(),this.fetchRestaurantReviews(restaurant_id)]).then(values => {
+      // console.log('promises resolved');
+      const db=values[0];
+      const reviews=values[1];
+      if (!db) {return};
+      // console.log('starting transactions',reviews);
+      var tx = db.transaction('revs', 'readwrite');
+      var store = tx.objectStore('revs');
+      reviews.forEach(function(review) {
+        store.put(review);
+        // console.log('saved', review);
+      });
+      // console.log('all restaurant reviews saved',reviews);
+      return reviews;
+    }).catch(error => {
+      console.log('save restaurant review error',error);
+      return Promise.resolve('done in reviews');
+    });
+    tx.complete.then(()=> {
+      // console.log('save reviews done');
+    });
+  }
   /**
    * Database URL.
    * Change this to restaurants.json file location on your server.
    */
   static get DATABASE_URL() {
     const port = 1337 // Change this to your server port
-    return `http://localhost:${port}/restaurants`;
+    return `http://localhost:${port}`;
     // const port = 8080;
     // return `http://localhost:${port}/data/restaurants.json`; //old project 1 URL
   }
 
+  //This is the location of the Server for
+  static get DATABASE_SERVER_URL() {
+    const port = 1337 // Change this to your server port
+    return `http://localhost:${port}`;
+    // const port = 8080;
+    // return `http://localhost:${port}/data/restaurants.json`; //old project 1 URL
+  }
+
+  //End point for the restaurant data fetch/Put
+  static get DATABASE_RESTAURANTS_URL() {
+    return this.DATABASE_SERVER_URL + '/restaurants';
+  }
+
+  static get DATABASE_REVIEWS_URL() {
+    return this.DATABASE_SERVER_URL + '/reviews';
+  }
   /**
-   * Fetch all restaurants.
+   * Fetch all restaurants from the server.
    */
-  static fetchRestaurants(callback) {
-// Implemented after consulting Adnan Usman to convert
-// XHR to fetch 
-    fetch(DBHelper.DATABASE_URL).then((response) =>{
+  static fetchRestaurants() {
+    return fetch(DBHelper.DATABASE_RESTAURANTS_URL).then((response) =>{
       if (!response.ok) {
         throw new Error('Response data not retrieved');
       }
       return response.json(); // return promise;
-    //  return JSON.parse(response.text);
-    }).then((jsonData)=> {
-      const returnData=jsonData;
-      callback(null,returnData);
-    }).catch((error) =>{
+    })
+    .catch((error) =>{
       // console.log('fetch error',error);
-      callback(error,null);
+    });
+    
+  }
+    
+  /**
+   * Fetch all reviews from the server.
+   */
+  static fetchAllReviews() {
+    // Implemented after consulting Adnan Usman to convert to promise/fetch
+    return fetch(DBHelper.DATABASE_REVIEWS_URL).then((response) =>{
+      if (!response.ok) {
+        throw new Error('Response data not retrieved');
+      }
+      // reviews=response.json();
+      // console.log('retrieved',reviews);
+      return response.json(); // return promise;
+    })
+    .catch((error) =>{
+      // console.log('fetch error',error);
+    });
+    
+  }
+
+    /**
+   * Fetch all reviews from the server.
+   */
+  static fetchRestaurantReviews(restaurant_id) {
+    // Implemented after consulting Adnan Usman to convert to promise/fetch
+    return fetch(DBHelper.DATABASE_REVIEWS_URL + '/?restaurant_id=' + restaurant_id).then((response) =>{
+      if (!response.ok) {
+        throw new Error('Response data not retrieved');
+      }
+      // reviews=response.json();
+      // console.log('retrieved',reviews);
+      return response.json(); // return promise;
+    })
+    .catch((error) =>{
+      // console.log('fetch error',error);
     });
     
   }
 
   /**
-   * Fetch all restaurants.
+   * Read all restaurants from IndexedDB.
    */
-  static fetchRestaurantsPromise() {
-    // Implemented after consulting Adnan Usman to convert
-    // XHR to fetch 
-        return fetch(DBHelper.DATABASE_URL).then((response) =>{
-          if (!response.ok) {
-            throw new Error('Response data not retrieved');
-          }
-          // console.log('retrieved',response.json());
-          return response.json(); // return promise;
-        //  return JSON.parse(response.text);
-        })
-        // .then((jsonData)=> {
-        //   const returnData=jsonData;
-        //   callback(null,returnData);
-        // })
-        .catch((error) =>{
-          // console.log('fetch error',error);
-        });
-        
-      }
-    
-
-
-  /**
-   * Fetch all restaurants from IndexedDB.
-   */
-  static fetchRestaurantsIdb(callback) {
-    this.dbPromise.then(function(db) {
+  static readRestauraunts(callback) {
+    this.openDatabase().then(function(db) {
       if (!db) { return};
       return db.transaction('objs')
         .objectStore('objs').getAll();
@@ -161,14 +198,45 @@ class DBHelper {
     });
   }
 
+  /**
+   * Read all restaurants from IndexedDB.
+   */
+  static readReviews() {
+    // console.log('in read reviews');
+  return this.openDatabase().then(db => {
+    // console.log('read rev db open');    
+    if (!db) {
+      // console.log('no db'); 
+      return Promise.resolve()
+    };
+      //retrieve reviews from main list and locally saved reviews not posted to server yet
+      // console.log('before promise all');
+      return Promise.all([
+        db.transaction('revs')
+                    .objectStore('revs').getAll()
+                    ,
+                    db.transaction('localrevs')
+                    .objectStore('localrevs').getAll()           
+      ]).then(values => {
+        // console.log('both rev db read',values);
+        // return values[0];
+        return values[0].concat(values[1]);
+      })
+    }).catch((error) =>{
+
+      console.log('read reviews error',error);
+    });
+  }
+
+
   // /**
   //  * Fetch a restaurant by its ID.
   //  */
-  static fetchRestaurantByIdIdb(id, callback) {
+  static readRestaurauntsById(id, callback) {
     // fetch all restaurants with proper error handling.
     //attempted to retrieve single item but didn't get it to work
-    //performance adequate return all and then filter so let as is
-    DBHelper.fetchRestaurantsIdb((error, restaurants) => {
+    //performance adequate return all and then filter so left as is
+    DBHelper.readRestauraunts((error, restaurants) => {
       if (error) {
         callback(error, null);
       } else {
@@ -182,10 +250,22 @@ class DBHelper {
     });
   }
 
+  // /**
+  //  * Fetch all reviews for a restaurant by its ID.
+  //  */
+  static readReviewsForRestaurant(restaurant_id) {
+    return this.readReviews().then(reviews => {
+      // console.log('all reviews',reviews);
+      const restaurant_reviews = reviews.filter(r => r.restaurant_id == restaurant_id);
+      // console.log('filtered reviews',restaurant_reviews);
+      return Promise.resolve(restaurant_reviews);
+    })
+  }
+
   /**
    * Fetch a restaurant by its ID.
    */
-  static fetchRestaurantByIdIdbSingle(id, callback) {
+  static readRestaurauntsByIdSingle(id, callback) {
 //This was early attempt to to retrieve single item from IndexedDB
 //didn't work so kept existing method
     this.dbPromise.then(db => {
@@ -206,10 +286,10 @@ class DBHelper {
   /**
    * Fetch restaurants by a cuisine type with proper error handling.
    */
-  static fetchRestaurantByCuisine(cuisine, callback) {
+  static readRestaurauntsByCuisine(cuisine, callback) {
     // Fetch all restaurants  with proper error handling
     // console.log('rest by cuisine');
-    DBHelper.fetchRestaurantsIdb((error, restaurants) => {
+    DBHelper.readRestauraunts((error, restaurants) => {
       if (error) {
         callback(error, null);
       } else {
@@ -221,12 +301,12 @@ class DBHelper {
   }
 
   /**
-   * Fetch restaurants by a neighborhood with proper error handling.
+   * Read restaurants by a neighborhood with proper error handling.
    */
-  static fetchRestaurantByNeighborhood(neighborhood, callback) {
+  static readRestaurantByNeighborhood(neighborhood, callback) {
     // Fetch all restaurants
     // console.log('rest by neigh');
-    DBHelper.fetchRestaurantsIdb((error, restaurants) => {
+    DBHelper.readRestauraunts((error, restaurants) => {
       if (error) {
         callback(error, null);
       } else {
@@ -238,13 +318,13 @@ class DBHelper {
   }
 
   /**
-   * Fetch restaurants by a cuisine and a neighborhood with proper error handling.
+   * read restaurants by a cuisine and a neighborhood with proper error handling.
    */
-  static fetchRestaurantByCuisineAndNeighborhood(cuisine, neighborhood, callback) {
+  static readRestaurauntsByCuisineAndNeighborhood(cuisine, neighborhood, callback) {
     // Fetch all restaurants
     // console.log('rest by cuis neigh');
     
-    DBHelper.fetchRestaurantsIdb((error, restaurants) => {
+    DBHelper.readRestauraunts((error, restaurants) => {
       if (error) {
         callback(error, null);
       } else {
@@ -262,11 +342,11 @@ class DBHelper {
 
 
   /**
-   * Fetch all neighborhoods with proper error handling.
+   * read all neighborhoods with proper error handling.
    */
-  static fetchNeighborhoods(callback) {
+  static readNeighborhoods(callback) {
     // console.log('fetch neigh');
-    DBHelper.fetchRestaurantsIdb((error, restaurants) => {
+    DBHelper.readRestauraunts((error, restaurants) => {
       if (error) {
         callback(error, null);
       } else {
@@ -280,12 +360,12 @@ class DBHelper {
   }
 
   /**
-   * Fetch all cuisines with proper error handling.
+   * read all cuisines with proper error handling.
    */
-  static fetchCuisines(callback) {
+  static readCuisine(callback) {
     // Fetch all restaurants
     // console.log('fetch cuis');
-    DBHelper.fetchRestaurantsIdb((error, restaurants) => {
+    DBHelper.readRestauraunts((error, restaurants) => {
       if (error) {
         callback(error, null);
       } else {
@@ -346,6 +426,242 @@ class DBHelper {
       })
       marker.addTo(newMap);
     return marker;
-  } 
-}
+  }
+  static updateFavoriteForRestaurant(restaurant,isFavorite) {
+    restaurant.is_favorite=isFavorite;
+    restaurant.updatedAt = new Date().toString();
+    console.log('update',restaurant,'favorite',isFavorite);
 
+    this.openDatabase().then((db) =>{
+      if (!db) {
+        console.log('no database');
+        return;
+      }
+      var tx = db.transaction(['objs','favQueue'], 'readwrite');
+      var objstore = tx.objectStore('objs');
+      var qStore = tx.objectStore('favQueue')
+      console.log('updating',restaurant);
+      objstore.put(restaurant); 
+      qStore.put({
+        restaurant_id:restaurant.id,
+        is_favorite: restaurant.is_favorite
+      });
+      tx.complete.then(() => {
+        // console.log('updated favorite',DBHelper.DATABASE_RESTAURANTS_URL + '/' + restaurant.id + '/?is_favorite=' + restaurant.is_favorite);
+        // this.sendFavoriteUpdate(restaurant.id,restaurant.is_favorite);
+        this.sendWaitingFavorites();
+    }).catch(error => {
+      console.log('error sending favorite',error);
+    });
+    });
+  }
+
+  static addReview(restaurantId,name,rating,comments){
+    // console.log('in add review', restaurantId,name,comments);
+    return this.openDatabase().then(db =>{
+      if (!db) {
+        // console.log('no review database');
+      }
+      // console.log('db opened', restaurantId,name,comments);
+      var tx = db.transaction('localrevs', 'readwrite');
+      var store = tx.objectStore('localrevs');
+      let review={
+        restaurant_id: restaurantId,
+        name: name,
+        rating: rating,
+        comments: comments,
+        createdAt:  new Date().toString(),
+        updatedAt:  new Date().toString()
+      };
+      // console.log('adding review',review);
+      store.put(review).then(request =>{
+        // console.log('review is updated', request);
+        // const review=request.data;
+        // console.log('put request',review);
+        this.sendNewReview(review);
+      })
+      .catch(error => {
+        // console.log('put failed',error);
+        return Promise.resolve('put failed');
+      }); 
+
+    })
+
+    .catch(error => {
+      // console.log('failed to open db',error);
+      return Promise.resolve('no db');
+    })
+  }
+
+  //send review to server
+  static sendNewReview(review) {
+    // console.log('in send review');
+    
+    const msgBody=`{
+      "restaurant_id": ${review.restaurant_id},
+      "name": "${review.name}",
+      "rating": ${review.rating},
+      "comments": "${review.comments}"
+    }`;
+    // console.log('review body',msgBody);
+
+    return fetch(DBHelper.DATABASE_REVIEWS_URL + '/',{
+      method: "POST",
+      body: msgBody
+    }).then(response => {
+      const cpyResponse=response.clone();
+      // console.log('response',cpyResponse);
+      return response;
+    })
+  }
+
+  //send pending reviews to server
+  //watched Doug Brown's walkthrough.  Liked the idea of the saved queue
+  //implemented this after watching
+  static sendWaitingReviews() {
+    // console.log('in send waiting review');
+    
+    this.openDatabase().then(db => {
+      if (!db) {
+        // console.log('send waiting rev no db');
+        return;
+      }
+      const tx = db.transaction('localrevs', 'readonly');
+      const store = tx.objectStore('localrevs');
+      store.openCursor().then(function cursorIterate(cursor) {
+        if (!cursor) {
+          // console.log('no cursor');
+          return;
+        }
+        // console.log('send waiting value is ',cursor.value,' entry ', cursor.key);
+        let curKey=cursor.key;
+        DBHelper.sendNewReview(cursor.value).then(response => {
+          if (!response){
+            console.log('no send new review response');
+            return;
+          }
+          if (response.ok) {
+            // console.log('continuing');
+            DBHelper.deletePendingReview(curKey).then(()=>{
+              DBHelper.sendWaitingReviews();
+            })
+          }
+        })
+      }).catch(error =>{
+        console.log('error in cursor',error);
+      });
+      tx.complete.then(()=> {
+        // console.log('rev cursor done');
+      });
+    });
+  }
+
+  // delete queued review after successfully posting to server
+  static deletePendingReview(key) {
+    return this.openDatabase().then(db => {
+      if (!db) {
+        // console.log('send waiting rev no db');
+        return;
+      }
+      const tx = db.transaction('localrevs', 'readwrite');
+      const store = tx.objectStore('localrevs');
+      
+      store.delete(key).then((response)=>{
+        // console.log('delete successful');
+      }).catch(error =>{
+        console.log('error in delete',error);
+      });
+      tx.complete.then(()=> console.log('delete done'));
+      return Promise.resolve('Review deleted');
+    }).catch(error => {
+      console.log('error opening delete db',error);
+      return Promise.reject();
+    });
+
+  }
+
+   //send pending reviews to server
+  //watched Doug Brown's walkthrough.  Liked the idea of the saved queue
+  //implemented this after watching
+  static sendWaitingFavorites() {
+    // console.log('in send waiting review');
+    
+    this.openDatabase().then(db => {
+      if (!db) {
+        // console.log('send waiting rev no db');
+        return;
+      }
+      const tx = db.transaction('favQueue', 'readonly');
+      const store = tx.objectStore('favQueue');
+      store.openCursor().then(function cursorIterate(cursor) {
+        if (!cursor) {
+          // console.log('no cursor');
+          return;
+        }
+        // console.log('send waiting value is ',cursor.value,' entry ', cursor.key);
+        let curKey=cursor.key;
+        DBHelper.sendFavoriteUpdate(cursor.value).then(response => {
+          if (!response){
+            console.log('no send new review response');
+            return;
+          }
+          if (response.ok) {
+            // console.log('continuing');
+            DBHelper.deletePendingFavorite(curKey).then(()=>{
+              DBHelper.sendWaitingFavorites();
+            })
+          }
+        })
+      }).catch(error =>{
+        console.log('error in cursor',error);
+      });
+      tx.complete.then(()=> {
+        // console.log('rev cursor done');
+      });
+    });
+  }
+
+  // delete queued favorite update after successfully posting to server
+  static deletePendingFavorite(key) {
+    return this.openDatabase().then(db => {
+      if (!db) {
+        // console.log('send waiting rev no db');
+        return;
+      }
+      const tx = db.transaction('favQueue', 'readwrite');
+      const store = tx.objectStore('favQueue');
+      
+      store.delete(key).then((response)=>{
+        // console.log('delete successful');
+      }).catch(error =>{
+        console.log('error in delete',error);
+      });
+      tx.complete.then(()=> console.log('delete done'));
+      return Promise.resolve('fav deleted');
+    }).catch(error => {
+      console.log('error opening fav db',error);
+      return Promise.reject();
+    });
+
+  }
+
+
+  static sendFavoriteUpdate(favData) {
+    
+    // can use fetch API
+    return fetch(DBHelper.DATABASE_RESTAURANTS_URL + '/' + favData.restaurant_id + '/?is_favorite=' + favData.is_favorite, 
+    {
+      method: "PUT"
+    }).then(response => {
+      if (response.ok) {
+        console.log('successful put');        
+      } else {
+        console.log('did not post');
+      }
+      return response;
+    }).catch(error => {
+      console.log('favorite update failed',error);
+      return Promise.reject('no fav update');
+    });
+  }
+}

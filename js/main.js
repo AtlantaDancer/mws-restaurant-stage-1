@@ -8,23 +8,21 @@ var markers = []
  * Fetch neighborhoods and cuisines as soon as the page is loaded.
  */
 document.addEventListener('DOMContentLoaded', (event) => {
-  // DBHelper.openDatabase().then(db => {
-  //   db.then( saveRestaurants();
-  //   )
-  // });
-//  saveRestaurants();
-  saveRestaurants().then(restaurants => {
-    initMap(); // added 
-    fetchNeighborhoods();
-    fetchCuisines();
+    saveRestaurants().then(() => {
+      initMap(); // added 
+      readNeighborhoods();
+      readCuisine();
+      DBHelper.sendWaitingReviews();
+      DBHelper.sendWaitingFavorites();
+
   });
 });
 
 /**
  * Fetch all neighborhoods and set their HTML.
  */
-fetchNeighborhoods = () => {
-  DBHelper.fetchNeighborhoods((error, neighborhoods) => {
+readNeighborhoods = () => {
+  DBHelper.readNeighborhoods((error, neighborhoods) => {
     if (error) { // Got an error
       // console.log('error in main-fetch nieghborhoods',error);
     } else {
@@ -38,7 +36,7 @@ fetchNeighborhoods = () => {
   retrieve data from server then Save restaurants to IDB
 */
 saveRestaurants = () => {
-  return DBHelper.SaveRestaurantsPromise();
+  return DBHelper.SaveRestaurants();
 }
 
 /**
@@ -58,8 +56,8 @@ fillNeighborhoodsHTML = (neighborhoods = self.neighborhoods) => {
 /**
  * Fetch all cuisines and set their HTML.
  */
-fetchCuisines = () => {
-  DBHelper.fetchCuisines((error, cuisines) => {
+readCuisine = () => {
+  DBHelper.readCuisine((error, cuisines) => {
     if (error) { // Got an error!
       console.error(error);
     } else {
@@ -117,7 +115,7 @@ updateRestaurants = () => {
   const cuisine = cSelect[cIndex].value;
   const neighborhood = nSelect[nIndex].value;
 
-  DBHelper.fetchRestaurantByCuisineAndNeighborhood(cuisine, neighborhood, (error, restaurants) => {
+  DBHelper.readRestaurauntsByCuisineAndNeighborhood(cuisine, neighborhood, (error, restaurants) => {
     if (error) { // Got an error!
       console.error(error);
     } else {
@@ -160,6 +158,22 @@ fillRestaurantsHTML = (restaurants = self.restaurants) => {
  */
 createRestaurantHTML = (restaurant) => {
   const li = document.createElement('li');
+  // const favDiv = document.createElement('div');
+  // favDiv.id='favoritetext';
+  // const fav = document.createElement('checkbox');
+
+  // fav.id='restaurantFavorite' + restaurant.id;
+  // fav.checked=restaurant.isFavorite;
+  // // fav.href = '#restaurantFavorite' + restaurant.id;
+  // // const favimage = document.createElement('img');
+  // favimage.className = 'favorite-img';
+  
+
+  // createFavoriteHTML(restaurant, fav, favimage);
+  // fav.append(favimage);
+  // favDiv.append(fav);
+  // // favDiv.append(favimage);
+  // li.append(favDiv);
 
   const image = document.createElement('img');
   image.className = 'restaurant-img';
@@ -205,3 +219,24 @@ addMarkersToMap = (restaurants = self.restaurants) => {
   });
 
 } 
+
+function updateFavorite(id,isFavorite){
+    //update favorite status in indexedDB, update updated time, update link
+}
+
+function createFavoriteHTML(restaurant, fav, favimage, isFavorite) {
+  if (isFavorite) {
+    fav.innerHTML = 'Remove from Favorites';
+    favimage.src = '/img/normal-heart.svg';
+    fav.setAttribute("aria-label", "remove " + restaurant.name + "from favorites");
+    fav.onclick = updateFavorite(restaurant.id, false);
+  }
+  else {
+    fav.innerHTML = 'Add to Favorites';
+    favimage.src = '/img/normal-heart.svg';
+    fav.href = DBHelper.urlForRestaurant(restaurant);
+    fav.setAttribute('aria-label', 'add ' + restaurant.name + 'to favorites');
+    fav.onclick = updateFavorite(restaurant.id, true);
+  }
+}
+

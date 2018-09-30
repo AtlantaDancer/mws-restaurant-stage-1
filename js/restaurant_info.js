@@ -5,10 +5,26 @@ var newMap;
  * Initialize map as soon as the page is loaded.
  */
 document.addEventListener('DOMContentLoaded', (event) => {  
-  DBHelper.openDatabasePromise().then(db=> {
-    initMap();
-  });
+  // console.log('DOM loaded');
+  DBHelper.sendWaitingReviews();
+  DBHelper.sendWaitingFavorites();
+  // console.log('calling initmap');
+  initMap();
+
+  // saveReviews().then(reviews => {
+  //   console.log('calling initmap');
+  //   initMap();
+  // }).catch(error => {
+  //   console.log('loaded error',error);
+  // });
 });
+
+/*
+  retrieve data from server then Save reviews to IDB
+*/
+saveReviews = () => {
+  return DBHelper.SaveReviews();
+}
 
 /**
  * Initialize leaflet map
@@ -51,7 +67,7 @@ fetchRestaurantFromURL = (callback) => {
     error = 'No restaurant id in URL'
     callback(error, null);
   } else {
-    DBHelper.fetchRestaurantByIdIdb(id, (error, restaurant) => {
+    DBHelper.readRestaurauntsById(id, (error, restaurant) => {
       self.restaurant = restaurant;
       // console.log('return',restaurant);
       if (!restaurant) {
@@ -71,6 +87,9 @@ fetchRestaurantFromURL = (callback) => {
 fillRestaurantHTML = (restaurant = self.restaurant) => {
   const name = document.getElementById('restaurant-name');
   name.innerHTML = restaurant.name;
+  
+  const favorite = document.getElementById('restaurant-favorite');
+  favorite.checked = restaurant.is_favorite;
 
   const address = document.getElementById('restaurant-address');
   address.innerHTML = restaurant.address;
@@ -78,11 +97,12 @@ fillRestaurantHTML = (restaurant = self.restaurant) => {
   const image = document.getElementById('restaurant-img');
   image.className = 'restaurant-img'
   image.src = DBHelper.imageUrlForRestaurant(restaurant);
+  image.srcset=DBHelper.imageUrlForRestaurantSrcset(restaurant);
   // add accessibility alt text identify restaurant shown 
   image.alt = restaurant.name;
   const cuisine = document.getElementById('restaurant-cuisine');
   cuisine.innerHTML = restaurant.cuisine_type;
-
+ 
   // fill operating hours
   if (restaurant.operating_hours) {
     fillRestaurantHoursHTML();
@@ -114,23 +134,33 @@ fillRestaurantHoursHTML = (operatingHours = self.restaurant.operating_hours) => 
 /**
  * Create all reviews HTML and add them to the webpage.
  */
-fillReviewsHTML = (reviews = self.restaurant.reviews) => {
+fillReviewsHTML = () => {
+  
   const container = document.getElementById('reviews-container');
   const title = document.createElement('h2');
   title.innerHTML = 'Reviews';
   container.appendChild(title);
-
-  if (!reviews) {
-    const noReviews = document.createElement('p');
-    noReviews.innerHTML = 'No reviews yet!';
-    container.appendChild(noReviews);
-    return;
-  }
-  const ul = document.getElementById('reviews-list');
-  reviews.forEach(review => {
-    ul.appendChild(createReviewHTML(review));
+  const action=document.createElement('a');
+  action.href=`/review.html?restaurant_id=${self.restaurant.id}`;
+  action.innerHTML="Add Review";
+  container.appendChild(action);
+  //now fetch reviews from server into indexedDB then retrieve from indexedDB
+  DBHelper.SaveRestaurantReviews (self.restaurant.id).then(() =>{
+    DBHelper.readReviewsForRestaurant(restaurant_id=self.restaurant.id).then(reviews => {
+      // console.log('review html',reviews);
+      if (!reviews) {
+        const noReviews = document.createElement('p');
+        noReviews.innerHTML = 'No reviews yet!';
+        container.appendChild(noReviews);
+        return;
+      }
+      const ul = document.getElementById('reviews-list');
+      reviews.forEach(review => {
+        ul.appendChild(createReviewHTML(review));
+      });
+      container.appendChild(ul);
+    })
   });
-  container.appendChild(ul);
 }
 
 /**
@@ -143,7 +173,8 @@ createReviewHTML = (review) => {
   li.appendChild(name);
 
   const date = document.createElement('p');
-  date.innerHTML = review.date;
+  // date.innerHTML = review.date;  
+  date.innerHTML = new Date(review.createdAt).toDateString();
   li.appendChild(date);
 
   const rating = document.createElement('p');
@@ -181,4 +212,10 @@ getParameterByName = (name, url) => {
   if (!results[2])
     return '';
   return decodeURIComponent(results[2].replace(/\+/g, ' '));
+}
+// built upon example from w3schools.com for checkbox code
+updateFavorite=() => {
+  const chkFavorite = document.getElementById('restaurant-favorite');
+  DBHelper.updateFavoriteForRestaurant(self.restaurant, chkFavorite.checked);
+
 }
